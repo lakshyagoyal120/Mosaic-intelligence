@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 
 ACCESS_TOKEN = os.environ.get("META_TOKEN")
-SIX_MONTHS_AGO = datetime.now() - timedelta(days=180)
+FOUR_YEARS_AGO = datetime.now() - timedelta(days=1460)
 
 COMPETITORS = {
     "Man_Matters": [
@@ -72,7 +72,7 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
                 # Filter by 6 months after fetching
                 if start:
                     start_dt = datetime.strptime(start[:10], "%Y-%m-%d")
-                    if start_dt < SIX_MONTHS_AGO:
+                    if start_dt < FOUR_YEARS_AGO:
                         continue
 
                 days_running = ""
@@ -147,7 +147,7 @@ def save_to_csv(ads, filename):
 def main():
     print("=" * 60)
     print("MOSAIC WELLNESS - COMPETITOR AD INTELLIGENCE SCRAPER")
-    print(f"Date range: last 6 months")
+    print(f"Date range: last 4 years")
     print("=" * 60)
     all_ads_combined = []
     for mosaic_brand, competitors in COMPETITORS.items():
