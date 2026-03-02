@@ -23,7 +23,8 @@ from datetime import datetime, timedelta
 # CONFIGURATION — ONLY EDIT THIS SECTION
 # ============================================================
 
-ACCESS_TOKEN = "EAANCLtuoY4YBQ1SyzjzHkJ9E7W5802am8ffSOvijTTV0MZAbaMAVrqnVj44blDT1iKB2dAzF13yZA1VDM0sOp3IJyfbL4FxiZAg4UE49xJH1OSumSZBRSPWek53xhmdVvHlU3h53ZC8ptT2DWsDw385ptLTcYskfHexrRcDdLzbtDY6gs3ZCqyyIXIA5EZBvkJRIORz2n8ZCv39F7xyNzcyTw8uc8PsGhGS0DtNvK9pGCx0WQQVLGd95"
+import os
+ACCESS_TOKEN = os.environ.get("META_TOKEN")
 
 SIX_MONTHS_AGO = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
 
