@@ -1,0 +1,19 @@
+name: Daily Ad Scraper
+
+on:
+  schedule:
+    - cron: '30 3 * * *'  # 9am IST daily
+  workflow_dispatch:  # allows manual trigger too
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: pip install -r requirements.txt
+      - run: python main.py
+        env:
+          META_TOKEN: ${{ secrets.META_TOKEN }}
