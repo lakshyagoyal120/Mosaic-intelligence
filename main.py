@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 
 ACCESS_TOKEN = os.environ.get("META_TOKEN")
-SIX_MONTHS_AGO = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
+SIX_MONTHS_AGO = datetime.now() - timedelta(days=180)
 
 COMPETITORS = {
     "Man_Matters": [
@@ -44,7 +44,6 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
         "search_page_ids": page_id,
         "ad_reached_countries": "['IN']",
         "ad_active_status": "ALL",
-        "ad_delivery_date_min": SIX_MONTHS_AGO,
         "fields": "id,page_name,ad_creative_bodies,ad_creative_link_captions,ad_creative_link_titles,ad_creative_link_descriptions,ad_delivery_start_time,ad_delivery_stop_time,ad_snapshot_url,publisher_platforms",
         "limit": 25
     }
@@ -65,9 +64,17 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
             ads = data.get("data", [])
             page_count += 1
             print(f"    Page {page_count}: {len(ads)} ads")
+
             for ad in ads:
                 start = ad.get("ad_delivery_start_time", "")
                 stop = ad.get("ad_delivery_stop_time", "")
+
+                # Filter by 6 months after fetching
+                if start:
+                    start_dt = datetime.strptime(start[:10], "%Y-%m-%d")
+                    if start_dt < SIX_MONTHS_AGO:
+                        continue
+
                 days_running = ""
                 status = "Active"
                 if start:
@@ -78,6 +85,7 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
                     else:
                         stop_dt = datetime.now()
                     days_running = (stop_dt - start_dt).days
+
                 if isinstance(days_running, int):
                     if days_running >= 30:
                         spend_signal = "High (30+ days)"
@@ -87,11 +95,13 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
                         spend_signal = "Low (<7 days)"
                 else:
                     spend_signal = ""
+
                 bodies = ad.get("ad_creative_bodies", [])
                 titles = ad.get("ad_creative_link_titles", [])
                 captions = ad.get("ad_creative_link_captions", [])
                 descriptions = ad.get("ad_creative_link_descriptions", [])
                 platforms = ad.get("publisher_platforms", [])
+
                 all_ads.append({
                     "mosaic_brand": mosaic_brand,
                     "competitor_name": page_name,
@@ -111,11 +121,13 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
                     "tone": "",
                     "core_claim": ""
                 })
+
             next_url = data.get("paging", {}).get("next")
             current_url = next_url if next_url else None
             current_params = {}
             if current_url:
                 time.sleep(0.5)
+
         except Exception as e:
             print(f"    Exception: {e}")
             break
@@ -135,7 +147,7 @@ def save_to_csv(ads, filename):
 def main():
     print("=" * 60)
     print("MOSAIC WELLNESS - COMPETITOR AD INTELLIGENCE SCRAPER")
-    print(f"Date range: {SIX_MONTHS_AGO} to today")
+    print(f"Date range: last 6 months")
     print("=" * 60)
     all_ads_combined = []
     for mosaic_brand, competitors in COMPETITORS.items():
