@@ -3,6 +3,9 @@ import csv
 import time
 import os
 from datetime import datetime, timedelta
+from supabase import create_client
+
+supabase = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SECRET_KEY"))
 
 ACCESS_TOKEN = os.environ.get("META_TOKEN")
 FOUR_YEARS_AGO = datetime.now() - timedelta(days=1460)
@@ -69,7 +72,6 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
                 start = ad.get("ad_delivery_start_time", "")
                 stop = ad.get("ad_delivery_stop_time", "")
 
-                # Filter by 6 months after fetching
                 if start:
                     start_dt = datetime.strptime(start[:10], "%Y-%m-%d")
                     if start_dt < FOUR_YEARS_AGO:
@@ -143,6 +145,12 @@ def save_to_csv(ads, filename):
         writer.writeheader()
         writer.writerows(ads)
     print(f"  Saved {len(ads)} ads -> {filename}")
+
+    try:
+        supabase.table("competitor_ads").upsert(ads, on_conflict="ad_id").execute()
+        print(f"  Pushed {len(ads)} ads to Supabase")
+    except Exception as e:
+        print(f"  Supabase error: {e}")
 
 def main():
     print("=" * 60)
