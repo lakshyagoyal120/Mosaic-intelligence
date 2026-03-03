@@ -147,8 +147,15 @@ def save_to_csv(ads, filename):
     print(f"  Saved {len(ads)} ads -> {filename}")
 
     try:
-        supabase.table("competitor_ads").upsert(ads, on_conflict="ad_id").execute()
-        print(f"  Pushed {len(ads)} ads to Supabase")
+        # Deduplicate by ad_id before pushing to Supabase
+        seen = set()
+        unique_ads = []
+        for ad in ads:
+            if ad["ad_id"] not in seen:
+                seen.add(ad["ad_id"])
+                unique_ads.append(ad)
+        supabase.table("competitor_ads").upsert(unique_ads, on_conflict="ad_id").execute()
+        print(f"  Pushed {len(unique_ads)} ads to Supabase")
     except Exception as e:
         print(f"  Supabase error: {e}")
 
