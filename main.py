@@ -87,6 +87,7 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
 
             data = response.json()
 
+            print(f"    API Response keys: {list(data.keys())}")
             if "error" in data:
                 print(f"    API Error: {data['error'].get('message', 'Unknown')}")
                 break
