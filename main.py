@@ -16,7 +16,6 @@ ACCESS_TOKEN = os.environ.get("META_TOKEN")
 FOUR_YEARS_AGO = datetime.now() - timedelta(days=1460)
 
 # Only fetch ads that STARTED in the last 7 days (for daily runs)
-SEVEN_DAYS_AGO = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
 
 # ── Competitor list ────────────────────────────────────────────────────────
 COMPETITORS = {
@@ -57,9 +56,6 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
         "search_page_ids": page_id,
         "ad_reached_countries": "['IN']",
         "ad_active_status": "ALL",
-        # FIX 1: Tell Meta API to only return ads from the last 7 days
-        # This means each daily run only fetches NEW ads, not the full history
-        "ad_delivery_date_min": SEVEN_DAYS_AGO,
         "fields": (
             "id,page_name,"
             "ad_creative_bodies,"
@@ -224,7 +220,7 @@ def save_to_csv(ads, filename):
 def main():
     print("=" * 60)
     print("MOSAIC WELLNESS - COMPETITOR AD INTELLIGENCE SCRAPER")
-    print(f"Fetching ads active since: {SEVEN_DAYS_AGO}")
+    print(f"Fetching all ads (new inserts only via Supabase check)")
     print("=" * 60)
 
     all_ads_combined = []
