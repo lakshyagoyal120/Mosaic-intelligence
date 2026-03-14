@@ -15,39 +15,38 @@ ACCESS_TOKEN = os.environ.get("META_TOKEN")
 # Only fetch ads from the last 4 years
 FOUR_YEARS_AGO = datetime.now() - timedelta(days=1460)
 
-# Only fetch ads that STARTED in the last 7 days (for daily runs)
-
 # ── Competitor list ────────────────────────────────────────────────────────
 COMPETITORS = {
     "Man_Matters": [
-        {"name": "Mars by GHC",              "page_id": "168479659686677"},
-        {"name": "Traya Health",             "page_id": "1067448693440461"},
-        {"name": "Plix",                     "page_id": "444025482768886"},
-        {"name": "The Man Company",          "page_id": "631488936979872"},
-        {"name": "Bold Care",                "page_id": "104897991742825"},
-        {"name": "Beardo",                   "page_id": "1642692419320655"},
-        {"name": "Bombay Shaving Company",   "page_id": "1737772143174400"},
+        {"name": "Mars by GHC",            "page_id": "168479659686677"},
+        {"name": "Traya Health",           "page_id": "1067448693440461"},
+        {"name": "Plix",                   "page_id": "444025482768886"},
+        {"name": "The Man Company",        "page_id": "631488936979872"},
+        {"name": "Bold Care",              "page_id": "104897991742825"},
+        {"name": "Beardo",                 "page_id": "1642692419320655"},
+        {"name": "Bombay Shaving Company", "page_id": "1737772143174400"},
     ],
     "Be_Bodywise": [
-        {"name": "Chemist At Play",          "page_id": "104769401793203"},
-        {"name": "Minimalist",               "page_id": "498594610347001"},
-        {"name": "Pilgrim",                  "page_id": "111982120196545"},
-        {"name": "OZiva",                    "page_id": "603903383105760"},
-        {"name": "Wellbeing Nutrition",      "page_id": "107959920549143"},
-        {"name": "Plix Life",                "page_id": "444025482768886"},
-        {"name": "ThriveCo",                 "page_id": "100622398157395"},
-        {"name": "Bare Anatomy",             "page_id": "244335642891847"},
+        {"name": "Chemist At Play",        "page_id": "104769401793203"},
+        {"name": "Minimalist",             "page_id": "498594610347001"},
+        {"name": "Pilgrim",                "page_id": "111982120196545"},
+        {"name": "OZiva",                  "page_id": "603903383105760"},
+        {"name": "Wellbeing Nutrition",    "page_id": "107959920549143"},
+        {"name": "Plix Life",              "page_id": "444025482768886"},
+        {"name": "ThriveCo",               "page_id": "100622398157395"},
+        {"name": "Bare Anatomy",           "page_id": "244335642891847"},
+        {"name": "Deconstruct Skincare",   "page_id": "106438584396199"},
     ],
     "Little_Joys": [
-        {"name": "Gritzo",                   "page_id": "177588558775715"},
-        {"name": "BabyOrgano",               "page_id": "553299865139117"},
-        {"name": "Plix Kids",                "page_id": "444025482768886"},
-        {"name": "Happi Kidz Gummies",       "page_id": "640242872713297"},
-        {"name": "Tikitoro",                 "page_id": "109025094618552"},
+        {"name": "Gritzo",                 "page_id": "177588558775715"},
+        {"name": "BabyOrgano",             "page_id": "553299865139117"},
+        {"name": "Plix Kids",              "page_id": "444025482768886"},
+        {"name": "Happi Kidz Gummies",     "page_id": "640242872713297"},
+        {"name": "Tikitoro",               "page_id": "109025094618552"},
     ]
 }
 
-# ── Fetch ads from Meta API ────────────────────────────────────────────────
+# ── Fetch ads from Meta API with deep pagination ───────────────────────────
 def fetch_ads_for_page(page_id, page_name, mosaic_brand):
     all_ads = []
     url = "https://graph.facebook.com/v19.0/ads_archive"
@@ -67,10 +66,11 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
             "ad_snapshot_url,"
             "publisher_platforms"
         ),
-        "limit": 25
+        "limit": 50   # Increased from 25 to 50 per page
     }
 
     page_count = 0
+    empty_pages_in_a_row = 0  # Track consecutive empty pages
     current_url = url
     current_params = params
 
@@ -83,20 +83,30 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
 
             data = response.json()
 
-            print(f"    API Response keys: {list(data.keys())}")
             if "error" in data:
                 print(f"    API Error: {data['error'].get('message', 'Unknown')}")
                 break
 
             ads = data.get("data", [])
             page_count += 1
-            print(f"    Page {page_count}: {len(ads)} ads")
+
+            if len(ads) == 0:
+                empty_pages_in_a_row += 1
+                print(f"    Page {page_count}: 0 ads (empty #{empty_pages_in_a_row})")
+                # Stop only after 3 consecutive empty pages
+                # Meta sometimes returns empty pages mid-pagination
+                if empty_pages_in_a_row >= 3:
+                    print(f"    Stopping — 3 consecutive empty pages")
+                    break
+            else:
+                empty_pages_in_a_row = 0  # Reset counter on non-empty page
+                print(f"    Page {page_count}: {len(ads)} ads")
 
             for ad in ads:
                 start = ad.get("ad_delivery_start_time", "")
                 stop  = ad.get("ad_delivery_stop_time", "")
 
-                # Skip anything older than 4 years (safety check)
+                # Skip anything older than 4 years
                 if start:
                     start_dt = datetime.strptime(start[:10], "%Y-%m-%d")
                     if start_dt < FOUR_YEARS_AGO:
@@ -151,6 +161,7 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
                     "core_claim":      ""
                 })
 
+            # Get next page URL
             next_url = data.get("paging", {}).get("next")
             current_url = next_url if next_url else None
             current_params = {}
@@ -179,12 +190,11 @@ def push_to_supabase(ads):
                 seen.add(ad["ad_id"])
                 unique_ads.append(ad)
 
-        # FIX 2: Fetch all existing ad_ids from Supabase
-        # so we never overwrite rows that are already there
+        # Fetch all existing ad_ids from Supabase
         existing = supabase.table("competitor_ads").select("ad_id").execute()
         existing_ids = set(row["ad_id"] for row in existing.data)
 
-        # Only keep ads that are not already in the database
+        # Only insert ads not already in the database
         new_ads = [ad for ad in unique_ads if ad["ad_id"] not in existing_ids]
 
         if new_ads:
@@ -220,7 +230,7 @@ def save_to_csv(ads, filename):
 def main():
     print("=" * 60)
     print("MOSAIC WELLNESS - COMPETITOR AD INTELLIGENCE SCRAPER")
-    print(f"Fetching all ads (new inserts only via Supabase check)")
+    print(f"Run date: {datetime.now().strftime('%Y-%m-%d')}")
     print("=" * 60)
 
     all_ads_combined = []
@@ -234,7 +244,7 @@ def main():
             ads = fetch_ads_for_page(comp["page_id"], comp["name"], mosaic_brand)
             print(f"  Total: {len(ads)} ads collected")
             brand_ads.extend(ads)
-            time.sleep(0.5)
+            time.sleep(1)  # Slightly longer pause between competitors
 
         save_to_csv(brand_ads, f"{mosaic_brand}_competitor_ads.csv")
         push_to_supabase(brand_ads)
