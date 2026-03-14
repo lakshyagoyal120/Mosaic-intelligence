@@ -49,7 +49,7 @@ COMPETITORS = {
 # ── Fetch ads from Meta API with deep pagination ───────────────────────────
 def fetch_ads_for_page(page_id, page_name, mosaic_brand):
     all_ads = []
-    url = "https://graph.facebook.com/v19.0/ads_archive"
+    url = "https://graph.facebook.com/v22.0/ads_archive"
     params = {
         "access_token": ACCESS_TOKEN,
         "search_page_ids": page_id,
