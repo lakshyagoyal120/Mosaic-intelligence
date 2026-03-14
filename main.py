@@ -12,8 +12,8 @@ supabase = create_client(
 )
 ACCESS_TOKEN = os.environ.get("META_TOKEN")
 
-# Only fetch ads from the last 4 years
-FOUR_YEARS_AGO = datetime.now() - timedelta(days=1460)
+# Only keep ads published in the last 7 days
+SEVEN_DAYS_AGO = datetime.now() - timedelta(days=7)
 
 # ── Competitor list ────────────────────────────────────────────────────────
 COMPETITORS = {
@@ -46,9 +46,10 @@ COMPETITORS = {
     ]
 }
 
-# ── Fetch ads from Meta API with deep pagination ───────────────────────────
+# ── Fetch ALL ads from Meta API, filter by date in Python ─────────────────
 def fetch_ads_for_page(page_id, page_name, mosaic_brand):
     all_ads = []
+    recent_ads = []
     url = "https://graph.facebook.com/v22.0/ads_archive"
     params = {
         "access_token": ACCESS_TOKEN,
@@ -66,11 +67,11 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
             "ad_snapshot_url,"
             "publisher_platforms"
         ),
-        "limit": 50   # Increased from 25 to 50 per page
+        "limit": 50
     }
 
     page_count = 0
-    empty_pages_in_a_row = 0  # Track consecutive empty pages
+    empty_pages_in_a_row = 0
     current_url = url
     current_params = params
 
@@ -92,34 +93,35 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
 
             if len(ads) == 0:
                 empty_pages_in_a_row += 1
-                print(f"    Page {page_count}: 0 ads (empty #{empty_pages_in_a_row})")
-                # Stop only after 3 consecutive empty pages
-                # Meta sometimes returns empty pages mid-pagination
                 if empty_pages_in_a_row >= 3:
-                    print(f"    Stopping — 3 consecutive empty pages")
                     break
             else:
-                empty_pages_in_a_row = 0  # Reset counter on non-empty page
-                print(f"    Page {page_count}: {len(ads)} ads")
+                empty_pages_in_a_row = 0
+
+            print(f"    Page {page_count}: {len(ads)} ads fetched")
 
             for ad in ads:
                 start = ad.get("ad_delivery_start_time", "")
                 stop  = ad.get("ad_delivery_stop_time", "")
 
-                # Skip anything older than 4 years
+                # Parse start date
+                start_dt = None
                 if start:
-                    start_dt = datetime.strptime(start[:10], "%Y-%m-%d")
-                    if start_dt < FOUR_YEARS_AGO:
+                    try:
+                        start_dt = datetime.strptime(start[:10], "%Y-%m-%d")
+                    except:
                         continue
 
                 # Calculate days running & status
                 days_running = ""
                 status = "Active"
-                if start:
-                    start_dt = datetime.strptime(start[:10], "%Y-%m-%d")
+                if start_dt:
                     if stop:
-                        stop_dt = datetime.strptime(stop[:10], "%Y-%m-%d")
-                        status = "Inactive"
+                        try:
+                            stop_dt = datetime.strptime(stop[:10], "%Y-%m-%d")
+                            status = "Inactive"
+                        except:
+                            stop_dt = datetime.now()
                     else:
                         stop_dt = datetime.now()
                     days_running = (stop_dt - start_dt).days
@@ -141,7 +143,7 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
                 descriptions = ad.get("ad_creative_link_descriptions", [])
                 platforms    = ad.get("publisher_platforms", [])
 
-                all_ads.append({
+                ad_row = {
                     "mosaic_brand":    mosaic_brand,
                     "competitor_name": page_name,
                     "ad_id":           ad.get("id", ""),
@@ -159,9 +161,14 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
                     "messaging_theme": "",
                     "tone":            "",
                     "core_claim":      ""
-                })
+                }
 
-            # Get next page URL
+                all_ads.append(ad_row)
+
+                # ── KEY FILTER: only keep ads from last 7 days ──
+                if start_dt and start_dt >= SEVEN_DAYS_AGO:
+                    recent_ads.append(ad_row)
+
             next_url = data.get("paging", {}).get("next")
             current_url = next_url if next_url else None
             current_params = {}
@@ -173,16 +180,17 @@ def fetch_ads_for_page(page_id, page_name, mosaic_brand):
             print(f"    Exception: {e}")
             break
 
-    return all_ads
+    print(f"    Total fetched: {len(all_ads)} | Last 7 days: {len(recent_ads)}")
+    return recent_ads  # Only return ads from last 7 days
 
 # ── Push only NEW ads to Supabase ──────────────────────────────────────────
 def push_to_supabase(ads):
     if not ads:
-        print(f"  No ads to push")
-        return
+        print(f"  No recent ads to push")
+        return 0
 
     try:
-        # Deduplicate within this batch first
+        # Deduplicate within this batch
         seen = set()
         unique_ads = []
         for ad in ads:
@@ -190,7 +198,7 @@ def push_to_supabase(ads):
                 seen.add(ad["ad_id"])
                 unique_ads.append(ad)
 
-        # Fetch all existing ad_ids from Supabase
+        # Fetch existing ad_ids from Supabase
         existing = supabase.table("competitor_ads").select("ad_id").execute()
         existing_ids = set(row["ad_id"] for row in existing.data)
 
@@ -199,59 +207,45 @@ def push_to_supabase(ads):
 
         if new_ads:
             supabase.table("competitor_ads").insert(new_ads).execute()
-            print(f"  Pushed {len(new_ads)} NEW ads to Supabase")
+            print(f"  ✓ Pushed {len(new_ads)} new ads to Supabase")
+            return len(new_ads)
         else:
-            print(f"  No new ads found — all already in database")
+            print(f"  No new ads this run — all already in database")
+            return 0
 
     except Exception as e:
         print(f"  Supabase error: {e}")
-
-# ── Save to CSV ────────────────────────────────────────────────────────────
-def save_to_csv(ads, filename):
-    if not ads:
-        print(f"  No ads to save -> {filename}")
-        return
-
-    fieldnames = [
-        "mosaic_brand", "competitor_name", "ad_id",
-        "ad_copy", "headline", "caption", "description",
-        "start_date", "stop_date", "days_running", "spend_signal",
-        "status", "platforms", "ad_snapshot_url",
-        "messaging_theme", "tone", "core_claim"
-    ]
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(ads)
-
-    print(f"  Saved {len(ads)} ads -> {filename}")
+        return 0
 
 # ── Main ───────────────────────────────────────────────────────────────────
 def main():
     print("=" * 60)
     print("MOSAIC WELLNESS - COMPETITOR AD INTELLIGENCE SCRAPER")
     print(f"Run date: {datetime.now().strftime('%Y-%m-%d')}")
+    print(f"Collecting ads published since: {SEVEN_DAYS_AGO.strftime('%Y-%m-%d')}")
     print("=" * 60)
 
-    all_ads_combined = []
+    total_new = 0
 
     for mosaic_brand, competitors in COMPETITORS.items():
         print(f"\nBRAND GROUP: {mosaic_brand}")
-        brand_ads = []
+
+        brand_recent_ads = []
 
         for comp in competitors:
             print(f"\n-> Fetching: {comp['name']} (ID: {comp['page_id']})")
-            ads = fetch_ads_for_page(comp["page_id"], comp["name"], mosaic_brand)
-            print(f"  Total: {len(ads)} ads collected")
-            brand_ads.extend(ads)
-            time.sleep(1)  # Slightly longer pause between competitors
+            recent_ads = fetch_ads_for_page(
+                comp["page_id"], comp["name"], mosaic_brand
+            )
+            brand_recent_ads.extend(recent_ads)
+            time.sleep(1)
 
-        save_to_csv(brand_ads, f"{mosaic_brand}_competitor_ads.csv")
-        push_to_supabase(brand_ads)
-        all_ads_combined.extend(brand_ads)
+        new_count = push_to_supabase(brand_recent_ads)
+        total_new += new_count
 
-    save_to_csv(all_ads_combined, "MASTER_all_competitor_ads.csv")
-    print(f"\nCOMPLETE. Total ads scraped today: {len(all_ads_combined)}")
+    print(f"\n{'=' * 60}")
+    print(f"COMPLETE. New ads added to Supabase today: {total_new}")
+    print(f"{'=' * 60}")
 
 if __name__ == "__main__":
     main()
